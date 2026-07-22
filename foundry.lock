@@ -1,8 +1,26 @@
 {
+  "lib/Pendle-SY-Public": {
+    "rev": "73676d931102a369a978a713abfd0b48e3e34361"
+  },
   "lib/forge-std": {
     "tag": {
       "name": "v1.16.2",
       "rev": "bf647bd6046f2f7da30d0c2bf435e5c76a780c1b"
+    }
+  },
+  "lib/maseer-one": {
+    "rev": "07eb992dbf1db78c1928fc0f79687eac7772b1db"
+  },
+  "lib/openzeppelin-contracts": {
+    "tag": {
+      "name": "v4.9.3",
+      "rev": "fd81a96f01cc42ef1c9a5399364968d0e07e9e90"
+    }
+  },
+  "lib/openzeppelin-contracts-upgradeable": {
+    "tag": {
+      "name": "v4.9.3",
+      "rev": "3d4c0d5741b131c231e558d7a6213392ab3672a5"
     }
   }
 }

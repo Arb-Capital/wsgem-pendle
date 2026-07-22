@@ -1,0 +1,5 @@
+forge-std/=lib/forge-std/src/
+pendle-sy/=lib/Pendle-SY-Public/contracts/
+@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/
+@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/
+maseer-one/=lib/maseer-one/src/
