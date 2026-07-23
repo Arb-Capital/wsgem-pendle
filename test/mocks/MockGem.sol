@@ -2,13 +2,18 @@
 pragma solidity 0.8.28;
 
 /// @notice Test stand-in for a gem (the underlying currency token, e.g. tGBP): a plain
-/// 18-decimal ERC20 that also carries the `isBanned` deny-list surface MaseerGuardOZ
-/// reads for compliance screening. Gem decimals live entirely inside the oracle price
-/// scaling, so 18 here keeps the harness numbers WAD without loss of generality.
+/// ERC20 that also carries the `isBanned` deny-list surface MaseerGuardOZ reads for
+/// compliance screening. Gem decimals live entirely inside the oracle price scaling;
+/// the default harness uses 18 to keep numbers WAD, and the decimals suite passes
+/// 2/6/8 to prove the SY's decimals-agnostic claim.
 contract MockGem {
     string public constant name = "Mock Gem";
     string public constant symbol = "GEM";
-    uint8 public constant decimals = 18;
+    uint8 public immutable decimals;
+
+    constructor(uint8 decimals_) {
+        decimals = decimals_;
+    }
 
     uint256 public totalSupply;
     mapping(address => uint256) public balanceOf;

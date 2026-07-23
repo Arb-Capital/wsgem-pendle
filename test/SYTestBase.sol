@@ -25,6 +25,12 @@ import {MockGem} from "./mocks/MockGem.sol";
 abstract contract SYTestBase is Test {
     uint256 internal constant INIT_NAVPRICE = 1.006e18;
 
+    // Overridable before super.setUp() — the decimals suite deploys the same stack
+    // around a low-decimal gem (navprice is quoted in gem native units per whole
+    // wsgem, so it must be rescaled alongside).
+    uint8 internal gemDecimals = 18;
+    uint256 internal initNavprice = INIT_NAVPRICE;
+
     MockGem internal gem;
     MaseerPrice internal pip;
     MaseerGate internal act;
@@ -39,11 +45,11 @@ abstract contract SYTestBase is Test {
     address internal bob = makeAddr("bob");
 
     function setUp() public virtual {
-        gem = new MockGem();
+        gem = new MockGem(gemDecimals);
 
         pip = new MaseerPrice();
         pip.kiss(address(this));
-        pip.poke(INIT_NAVPRICE);
+        pip.poke(initNavprice);
 
         act = new MaseerGate();
         act.setOpenMint(block.timestamp);

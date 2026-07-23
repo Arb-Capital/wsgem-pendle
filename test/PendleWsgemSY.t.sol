@@ -4,6 +4,7 @@ pragma solidity 0.8.28;
 import {SYTestBase} from "./SYTestBase.sol";
 import {PendleWsgemSY} from "../src/PendleWsgemSY.sol";
 import {IWsgem} from "../src/interfaces/IWsgem.sol";
+import {MockGem} from "./mocks/MockGem.sol";
 import {IStandardizedYield} from "pendle-sy/interfaces/IStandardizedYield.sol";
 import {Errors} from "pendle-sy/core/libraries/Errors.sol";
 
@@ -415,6 +416,20 @@ contract PendleWsgemSYTest is SYTestBase {
         sy.redeem(bob, shares, address(wsgem), 0, false);
     }
 
+    function test_BannedSY_RedeemFrozen_UnbanRestores() public {
+        uint256 shares = _depositWsgemAs(alice, 10e18);
+        gem.ban(address(sy));
+
+        // wsgem.transfer screens src == SY: redemptions freeze while the ban lasts.
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(IWsgem.NotAuthorized.selector, address(sy)));
+        sy.redeem(alice, shares, address(wsgem), 0, false);
+
+        gem.unban(address(sy));
+        vm.prank(alice);
+        assertEq(sy.redeem(alice, shares, address(wsgem), 0, false), shares);
+    }
+
     function test_BannedHolder_SySharesStillTransferable() public {
         uint256 shares = _depositWsgemAs(alice, 10e18);
         gem.ban(alice);
@@ -475,9 +490,11 @@ contract PendleWsgemSYTest is SYTestBase {
         uint256 out = sy.redeem(alice, remaining, address(wsgem), 0, false);
         assertEq(out, remaining);
 
+        // Execution parity: the tail redeem reverts with the same SYInsolvent the
+        // preview quotes (balance is zero after the first-come redemption above).
         uint256 tail = shares - remaining;
         vm.prank(alice);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSelector(PendleWsgemSY.SYInsolvent.selector, tail));
         sy.redeem(alice, tail, address(wsgem), 0, false);
     }
 
@@ -531,6 +548,83 @@ contract PendleWsgemSYTest is SYTestBase {
         wsgem.approve(address(sy), wamt);
         assertEq(sy.deposit(bob, address(wsgem), wamt, 0), wamt);
         vm.stopPrank();
+    }
+
+    /*///////////////////////////////////////////////////////////////
+                                 SWEEP
+    //////////////////////////////////////////////////////////////*/
+
+    function test_Sweep_OnlyOwner() public {
+        vm.prank(alice);
+        vm.expectRevert("Ownable: caller is not the owner");
+        sy.sweep(address(gem), alice);
+    }
+
+    function test_Sweep_WsgemAlwaysReverts_EvenForSurplus() public {
+        _depositWsgemAs(alice, 10e18);
+        // Donated surplus is extra backing (donations are how a post-smelt deficit is
+        // remediated), not sweepable value.
+        uint256 donation = _mintWsgem(bob, 5e18);
+        vm.prank(bob);
+        wsgem.transfer(address(sy), donation);
+        assertGt(wsgem.balanceOf(address(sy)), sy.totalSupply());
+
+        vm.expectRevert(PendleWsgemSY.SweepBackingToken.selector);
+        sy.sweep(address(wsgem), address(this));
+    }
+
+    function test_Sweep_WsgemBlockedDuringDeficitToo() public {
+        _depositWsgemAs(alice, 100e18);
+        vm.prank(issuer);
+        wsgem.smelt(address(sy), 40e18);
+
+        vm.expectRevert(PendleWsgemSY.SweepBackingToken.selector);
+        sy.sweep(address(wsgem), address(this));
+    }
+
+    function test_Sweep_RecoversDirectlyTransferredGem() public {
+        uint256 shares = _depositWsgemAs(alice, 10e18);
+        gem.mint(address(sy), 5e18); // mistaken direct transfer instead of deposit()
+
+        vm.expectEmit(true, true, true, true);
+        emit PendleWsgemSY.Sweep(address(gem), bob, 5e18);
+        sy.sweep(address(gem), bob);
+
+        assertEq(gem.balanceOf(bob), 5e18);
+        assertEq(gem.balanceOf(address(sy)), 0);
+        // Backing untouched: still fully redeemable 1:1.
+        assertEq(sy.deficit(), 0);
+        vm.prank(alice);
+        assertEq(sy.redeem(alice, shares, address(wsgem), 0, false), shares);
+    }
+
+    function test_Sweep_RecoversUnrelatedToken() public {
+        MockGem rando = new MockGem(18);
+        rando.mint(address(sy), 7e18);
+        sy.sweep(address(rando), bob);
+        assertEq(rando.balanceOf(bob), 7e18);
+    }
+
+    function test_Sweep_RecoversEth() public {
+        vm.deal(address(this), 1 ether);
+        (bool ok,) = address(sy).call{value: 1 ether}("");
+        assertTrue(ok);
+
+        sy.sweep(address(0), bob);
+        assertEq(bob.balance, 1 ether);
+        assertEq(address(sy).balance, 0);
+    }
+
+    function test_Sweep_ZeroBalanceIsNoop() public {
+        sy.sweep(address(gem), bob);
+        assertEq(gem.balanceOf(bob), 0);
+    }
+
+    function test_Sweep_WorksWhilePaused() public {
+        gem.mint(address(sy), 1e18);
+        sy.pause();
+        sy.sweep(address(gem), bob);
+        assertEq(gem.balanceOf(bob), 1e18);
     }
 
     /*///////////////////////////////////////////////////////////////

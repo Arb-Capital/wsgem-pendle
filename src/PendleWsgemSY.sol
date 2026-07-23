@@ -26,6 +26,8 @@ import {IWsgem} from "./interfaces/IWsgem.sol";
 /// the SY leaves shares outstanding with less than 1 wsgem of backing each; `deficit()`
 /// surfaces that state for monitoring, and deposits fail closed while it persists
 /// (redemptions stay live, first-come, and the owner can `pause()` to intervene).
+/// The owner's only other privilege is `sweep()`, which recovers stray assets but can
+/// never touch the wsgem backing.
 contract PendleWsgemSY is SYBaseV2 {
     address public immutable wsgem;
     address public immutable gem;
@@ -35,6 +37,11 @@ contract PendleWsgemSY is SYBaseV2 {
     /// Only reachable after a privileged burn of the SY's wsgem. `deficit` is the wsgem
     /// shortfall for the operation.
     error SYInsolvent(uint256 deficit);
+
+    /// @notice The wsgem backing can never be swept.
+    error SweepBackingToken();
+
+    event Sweep(address indexed token, address indexed receiver, uint256 amount);
 
     constructor(string memory _name, string memory _symbol, address _wsgem) SYBaseV2(_name, _symbol, _wsgem) {
         wsgem = _wsgem;
@@ -88,6 +95,12 @@ contract PendleWsgemSY is SYBaseV2 {
         override
         returns (uint256 amountTokenOut)
     {
+        // Shares are already burned by the base at this point but the wsgem balance is
+        // untouched, so the same balance check as _previewRedeem applies. The transfer
+        // below would revert on its own past the balance; checking first makes the
+        // insolvent tail revert with the same SYInsolvent the preview quotes.
+        uint256 bal = IWsgem(wsgem).balanceOf(address(this));
+        if (amountSharesToRedeem > bal) revert SYInsolvent(amountSharesToRedeem - bal);
         amountTokenOut = amountSharesToRedeem;
         _transferOut(wsgem, receiver, amountTokenOut);
     }
@@ -148,7 +161,9 @@ contract PendleWsgemSY is SYBaseV2 {
     {
         // Quote only what execution can deliver: after a privileged smelt the SY can
         // hold fewer wsgem than shares, and redeeming past the balance reverts — so
-        // the preview reverts too instead of overquoting the insolvent tail.
+        // the preview reverts too instead of overquoting the insolvent tail. While
+        // solvent the balance covers every outstanding share, so a reverting quote
+        // exceeds total supply and corresponds to no redemption anyone could execute.
         uint256 bal = IWsgem(wsgem).balanceOf(address(this));
         if (amountSharesToRedeem > bal) revert SYInsolvent(amountSharesToRedeem - bal);
         amountTokenOut = amountSharesToRedeem;
@@ -175,6 +190,23 @@ contract PendleWsgemSY is SYBaseV2 {
 
     function assetInfo() external view returns (AssetType assetType, address assetAddress, uint8 assetDecimals) {
         return (AssetType.TOKEN, gem, IERC20Metadata(gem).decimals());
+    }
+
+    /*///////////////////////////////////////////////////////////////
+                                 SWEEP
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Recover assets the SY could otherwise never move: ETH (the base
+    /// contract is payable) and tokens transferred here directly instead of deposited.
+    /// The wsgem is excluded entirely — backing, and any donated surplus (which is how
+    /// a post-smelt deficit is remediated), stays untouchable, so no owner action can
+    /// reduce what redemptions draw on. Works while paused: sweeping moves no shares.
+    /// @param token ERC20 to sweep, or address(0) for ETH. The full balance is sent.
+    function sweep(address token, address receiver) external onlyOwner nonReentrant {
+        if (token == wsgem) revert SweepBackingToken();
+        uint256 amount = _selfBalance(token);
+        _transferOut(token, receiver, amount);
+        emit Sweep(token, receiver, amount);
     }
 
     /*///////////////////////////////////////////////////////////////
