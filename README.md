@@ -6,8 +6,8 @@ enabling PT/YT markets on [Pendle](https://pendle.finance).
 
 A wsgem is a non-rebasing wrapper of an underlying currency token (the "gem", e.g. tGBP)
 whose gem value is an oracle-set NAV (`navprice()`, quoted in gem native units per whole
-wsgem) that is poked upward over time. That is exactly the shape Pendle's SY standard
-models best (cf. `PendleWstEthSY`):
+wsgem) that accrues upward over time under normal operation. That shape is well
+suited to Pendle's SY standard (cf. `PendleWstEthSY`):
 
 - **1 SY share = 1 wsgem** — the SY holds the wsgem and mints shares 1:1.
 - **`exchangeRate()` = `wsgem.navprice()`** — gem per share.
@@ -87,6 +87,11 @@ All market parameters are governable per instance.
   gem native units per whole wsgem, so the share math is decimals-agnostic (tested at 2,
   6, 8, and 18); low-decimal gems simply round values to their coarser smallest unit
   (at most one gem unit of rounding per operation).
+- **Token compatibility assumptions**: wsgem must follow the Maseer wsgem interface,
+  use 18 decimals, and transfer exact requested amounts. The gem may use any decimals,
+  but it must also transfer exact requested amounts. Fee-on-transfer and rebasing token
+  implementations are unsupported; otherwise the base contract's requested deposit
+  amount can differ from the amount actually received or passed to `wsgem.mint()`.
 - **Privileged smelt is an explicit trust assumption.** wsgem issuers can forcibly burn
   wsgem from any holder (`smelt(address,uint256)`) — including the SY, which would leave
   shares outstanding with less than 1 wsgem of backing each. The SY surfaces this via
@@ -95,11 +100,12 @@ All market parameters are governable per instance.
   Redemptions stay live but first-come, and `previewRedeem` is balance-aware: it quotes
   exactly up to the held wsgem and reverts `SYInsolvent` on the unbacked tail instead of
   overquoting. The SY owner can `pause()` to intervene.
-- **SY owner** holds exactly two privileges: `pause()` (freezes SY share
-  mint/burn/transfer) and `sweep(token, receiver)` (recovers stray ETH or tokens sent
-  to the SY directly — the wsgem itself can never be swept, so backing and any donated
-  surplus stay untouchable by the owner). Ownership is two-step transferable and should
-  live with an ops multisig. No other privileged surface.
+- **SY administration** has two operational powers: `pause()` / `unpause()` controls SY
+  share minting, burning, and transfers, while `sweep(token, receiver)` recovers stray ETH
+  or tokens sent to the SY directly. The wsgem itself can never be swept, so backing and
+  any donated surplus stay untouchable by the owner. The owner can also transfer or
+  renounce ownership through the inherited ownership interface; production ownership
+  should live with an ops multisig. There is no other privileged operational surface.
 
 ## Development
 
