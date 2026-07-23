@@ -104,11 +104,19 @@ All market parameters are governable per instance.
 ## Development
 
 ```shell
-forge build
-forge test                              # unit + fuzz + invariant (fork suites skip offline)
-forge test --match-contract ForkTest    # deterministic fork suite (pinned block)
-forge test --match-contract SmokeTest   # latest-block live-parameter smoke checks
+make test        # offline dev loop: unit + fuzz + invariant + deploy-script + decimals suites
+make test-fork   # deterministic fork suite (pinned block; archive-capable RPC)
+make test-smoke  # latest-block live-parameter smoke checks
+make test-all    # everything the configured RPC allows
+make coverage    # summary coverage of the src/ surface
+make gen-report  # HTML coverage report -> docs/coverage-report/ (view via make serve-report)
 ```
+
+Copy `.env.example` to `.env` for configuration. RPC precedence everywhere (make targets
+and direct `forge test` alike): explicit `ETH_RPC_URL`, else an endpoint composed from
+`ALCHEMY_API_KEY`, else — for the deploy/check targets only — a public fallback.
+`make test` and `make coverage` strip the RPC vars so the dev loop stays deterministic
+even with an RPC configured.
 
 Fork suites run only when an explicit RPC is configured (`ETH_RPC_URL`, or
 `ALCHEMY_API_KEY` to compose one) and **skip otherwise**, so plain offline `forge test`
@@ -121,9 +129,15 @@ not a code regression.
 ### Deploy
 
 ```shell
-forge script script/DeployPendleWsgemSY.s.sol --rpc-url mainnet -vvv               # dry run
-forge script script/DeployPendleWsgemSY.s.sol --rpc-url mainnet --broadcast --verify -vvv
+make deploy-dry       # keyless simulation against live mainnet state — run first
+make deploy           # keystore-signed broadcast + inline Etherscan verify
+make check SY=0x...   # re-run the sanity battery against the mined instance (keyless)
+make verify           # resume-verify a broadcast whose inline verification hiccuped
 ```
+
+`make deploy` signs from an encrypted keystore (`ETH_FROM` + `ETH_KEYSTORE`; forge
+prompts for the password — no raw private key anywhere) and needs `ETHERSCAN_API_KEY`
+for verification.
 
 Defaults deploy for wstGBP. For another instance, `WSGEM`, `SY_NAME`, `SY_SYMBOL`, and
 `EXPECTED_GEM` must **all** be set explicitly — the script refuses to fall back to the
