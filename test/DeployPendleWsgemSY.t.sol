@@ -7,12 +7,14 @@ import {PendleWsgemSY} from "../src/PendleWsgemSY.sol";
 import {MaseerOne as Wsgem} from "maseer-one/MaseerOne.sol";
 import {MockGem} from "./mocks/MockGem.sol";
 
-/// @notice Executes the deploy script end to end against the local wsgem stack. The
-/// pre-deployment review found the script's sanity battery could never pass on a fresh
-/// SY and nothing exercised it; this suite keeps every script path executable. The
-/// script is driven through deploy()/check() directly (run() is a thin env-var reader
-/// over deploy(); vm.setEnv races across parallel tests, so env parsing stays untested
-/// by design).
+/// @notice Executes the generic deploy script end to end against the local wsgem stack —
+/// no instance-specific addresses, so it runs offline. The pre-deployment review found
+/// the script's sanity battery could never pass on a fresh SY and nothing exercised it;
+/// this suite keeps every script path executable. The script is driven through
+/// deploy()/check() directly (run() only resolves target()/naming() over them, and
+/// vm.setEnv races across parallel tests, so env parsing stays untested by design). The
+/// pinned wstGBP subclass is validated against live state in
+/// DeployPendleWstGbpSY.fork.t.sol.
 contract DeployPendleWsgemSYTest is SYTestBase {
     DeployPendleWsgemSY internal deployer;
     address internal multisig = makeAddr("multisig");

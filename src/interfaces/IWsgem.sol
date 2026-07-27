@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.0;
 
-/// @notice Minimal interface for a wsgem token — a wrapped staked currency such as
-/// wstGBP or wstCAD, backed by an underlying currency token (the "gem").
+/// @notice Minimal interface for a wsgem token — a wrapped staked currency token, backed
+/// by an underlying currency token (the "gem").
 /// Errors are mirrored from the wsgem implementation so that preview reverts carry
 /// selectors identical to the reverts of the real wsgem.mint() path.
 interface IWsgem {

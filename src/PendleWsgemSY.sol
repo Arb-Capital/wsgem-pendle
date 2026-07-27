@@ -5,10 +5,10 @@ import "pendle-sy/core/StandardizedYield/v2/SYBaseV2.sol";
 import {IWsgem} from "./interfaces/IWsgem.sol";
 
 /// @notice Pendle Standardized Yield (EIP-5115) wrapper for a wsgem token — a wrapped
-/// staked currency such as wstGBP ("Wren Staked tGBP") or wstCAD.
+/// staked currency token. One deployment serves one wsgem instance.
 ///
 /// A wsgem is a non-rebasing, NAV-accruing wrapper of an underlying currency token (the
-/// "gem", e.g. tGBP): its gem value is an oracle-set NAV rather than an on-chain balance
+/// "gem"): its gem value is an oracle-set NAV rather than an on-chain balance
 /// ratio. `navprice()` is quoted in gem native units per whole (1e18) wsgem, so the
 /// contract is agnostic to the gem's decimals. 1 SY share == 1 wsgem, `exchangeRate()`
 /// is `navprice()`, and the Pendle asset is the gem.

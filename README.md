@@ -39,7 +39,8 @@ backstop pool) directly.
 |---|---|
 | `PendleWsgemSY` | `src/PendleWsgemSY.sol` |
 | `IWsgem` (minimal interface, mirrored errors) | `src/interfaces/IWsgem.sol` |
-| Deploy script | `script/DeployPendleWsgemSY.s.sol` |
+| Deploy script (wstGBP, fully pinned) | `script/DeployPendleWstGbpSY.s.sol` |
+| Deploy script (generic pattern, env-driven) | `script/DeployPendleWsgemSY.s.sol` |
 
 Built on Pendle's immutable [`SYBaseV2`](https://github.com/pendle-finance/Pendle-SY-Public)
 (pinned submodule) with OpenZeppelin 4.9.3.
@@ -145,24 +146,37 @@ make verify           # resume-verify a broadcast whose inline verification hicc
 prompts for the password — no raw private key anywhere) and needs `ETHERSCAN_API_KEY`
 for verification.
 
-Defaults deploy for wstGBP. For another instance, `WSGEM`, `SY_NAME`, `SY_SYMBOL`, and
-`EXPECTED_GEM` must **all** be set explicitly — the script refuses to fall back to the
-wstGBP branding or skip the gem cross-check for an unfamiliar wsgem address. Set
-`SY_OWNER` to begin a **two-step** ownership transfer: the script leaves the transfer
-pending, and the new owner must call `claimOwnership()` from its own address to
-complete it (a mistyped-but-valid address therefore cannot strand pause rights).
+There are two deploy scripts, one behaviour:
+
+- **`script/DeployPendleWstGbpSY.s.sol`** — the wstGBP deployment, with the wsgem
+  address, the gem to cross-check, and the SY name/symbol all pinned in code. Needs no
+  configuration; it is what the `make` targets above drive. A `WSGEM`, `EXPECTED_GEM`,
+  `SY_NAME`, or `SY_SYMBOL` left exported for a different instance is **refused**, not
+  silently ignored.
+- **`script/DeployPendleWsgemSY.s.sol`** — the generic pattern for any other wsgem, and
+  the deploy/check machinery both share. It defaults **nothing**: `WSGEM`, `SY_NAME`,
+  `SY_SYMBOL`, and `EXPECTED_GEM` must all be set, because a wrong name, symbol, or
+  unchecked underlying is permanent on an immutable contract. Drive it with
+  `make deploy-dry SCRIPT=script/DeployPendleWsgemSY.s.sol` (same for `deploy` / `check`
+  / `verify`). For a recurring instance, subclass it as the wstGBP script does —
+  override `target()` and `naming()` and everything else comes along.
+
+Either way, set `SY_OWNER` to begin a **two-step** ownership transfer: the script leaves
+the transfer pending, and the new owner must call `claimOwnership()` from its own address
+to complete it (a mistyped-but-valid address therefore cannot strand pause rights).
 
 The script asserts the full post-deploy state (metadata, previews, token lists,
 compliance pass, `deficit() == 0`) before reporting the address; the gem-route preview
 check needs the wsgem mint window open and is skipped with a warning otherwise. Re-run
 the same battery against the mined instance — or any time later as a health check —
-with the command below. It reads the same `WSGEM` / `EXPECTED_GEM` / `SY_OWNER` env
-vars (and wstGBP defaults) rather than trusting the SY under check, and additionally
+with the command below. It takes the expected wsgem, gem, and owner from the script's own
+pinned or env-supplied configuration rather than trusting the SY under check (otherwise
+any healthy SY would pass, including one bound to the wrong wsgem), and additionally
 requires the SY unpaused and the pending-owner slot empty — the only tolerated pending
 state is a transfer parked toward a declared `SY_OWNER` that has not yet claimed:
 
 ```shell
-forge script script/DeployPendleWsgemSY.s.sol --sig "check(address)" <SY_ADDR> --rpc-url mainnet -vvv
+forge script script/DeployPendleWstGbpSY.s.sol --sig "check(address)" <SY_ADDR> --rpc-url mainnet -vvv
 ```
 
 ### Dependencies (pinned submodules)

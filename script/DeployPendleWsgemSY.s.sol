@@ -10,17 +10,22 @@ interface IERC20MetadataLike {
     function decimals() external view returns (uint8);
 }
 
-/// @notice Deploys PendleWsgemSY against a live wsgem token. Defaults target the wstGBP
-/// deployment on Ethereum mainnet; for any other wsgem instance (e.g. wstCAD), SY_NAME,
-/// SY_SYMBOL, and EXPECTED_GEM must all be set explicitly — there is nothing sensible to
-/// default them to, and inheriting the wstGBP branding or skipping the gem check has
-/// permanent consequences on an immutable contract.
+/// @notice Generic deployment pattern for {PendleWsgemSY}, plus the deploy/check machinery
+/// every instance shares. Nothing here is instance-specific: every parameter comes from
+/// the environment and NOTHING is defaulted, because there is nothing sensible to default
+/// to — a wrong name, symbol, or unchecked underlying is permanent on an immutable
+/// contract.
+///
+/// For a recurring deployment, subclass instead of exporting env vars by hand: pin the
+/// configuration by overriding {target} and {naming}, and the deploy, check, and Makefile
+/// paths come along unchanged. `script/DeployPendleWstGbpSY.s.sol` is the worked example
+/// (and the live wstGBP deployment); copy it for the next instance.
 ///
 /// Env vars:
-///   WSGEM         wsgem token address        (default: wstGBP mainnet)
-///   SY_NAME       SY token name              (wstGBP default: "SY Wren Staked tGBP")
-///   SY_SYMBOL     SY token symbol            (wstGBP default: "SY-wstGBP")
-///   EXPECTED_GEM  assert wsgem.gem() matches (wstGBP default: tGBP mainnet)
+///   WSGEM         wsgem token address        (required)
+///   SY_NAME       SY token name              (required)
+///   SY_SYMBOL     SY token symbol            (required)
+///   EXPECTED_GEM  assert wsgem.gem() matches (required)
 ///   SY_OWNER      begin two-step ownership transfer after deploy (optional; the new
 ///                 owner must then call claimOwnership() from its own address)
 ///
@@ -30,8 +35,8 @@ interface IERC20MetadataLike {
 ///
 /// Post-broadcast: re-run the sanity battery against the mined instance (and any time
 /// after — it doubles as a health check: it requires deficit() == 0, an unpaused SY,
-/// and no unexpected pending owner). It reads the same WSGEM / EXPECTED_GEM / SY_OWNER
-/// env vars (and defaults) as run(), deliberately not the SY under check:
+/// and no unexpected pending owner). It reads the expected wsgem / gem / owner from
+/// {target}, deliberately not from the SY under check:
 ///   forge script script/DeployPendleWsgemSY.s.sol --sig "check(address)" <SY_ADDR> \
 ///     --rpc-url mainnet -vvv
 ///
@@ -41,25 +46,24 @@ interface IERC20MetadataLike {
 ///     --constructor-args $(cast abi-encode "constructor(string,string,address)" \
 ///       "<SY_NAME>" "<SY_SYMBOL>" <WSGEM>)
 contract DeployPendleWsgemSY is Script {
-    // Default instance: wstGBP / tGBP on Ethereum mainnet.
-    address constant WSTGBP = 0x57C3571f10767E49C9d7b60feb6c67804783B7aE;
-    address constant TGBP = 0x27f6c8289550fCE67f6B50BeD1F519966aFE5287;
+    /// @notice The wsgem to wrap, the gem it must be backed by, and the intended final
+    /// owner (address(0) = leave the deployer as owner). Shared by {run} and {check}:
+    /// the check path needs exactly these, which is why the SY metadata lives apart in
+    /// {naming} — a health check must not require branding it never inspects.
+    function target() public view virtual returns (address wsgem, address expectedGem, address owner) {
+        return (vm.envAddress("WSGEM"), vm.envAddress("EXPECTED_GEM"), vm.envOr("SY_OWNER", address(0)));
+    }
+
+    /// @notice The SY's ERC20 metadata. Deploy-path only: it is burned into the
+    /// constructor and can never be changed afterwards.
+    function naming() public view virtual returns (string memory name, string memory symbol) {
+        return (vm.envString("SY_NAME"), vm.envString("SY_SYMBOL"));
+    }
 
     function run() external returns (PendleWsgemSY sy) {
-        address wsgem = vm.envOr("WSGEM", WSTGBP);
-        string memory name;
-        string memory symbol;
-        address expectedGem;
-        if (wsgem == WSTGBP) {
-            name = vm.envOr("SY_NAME", string("SY Wren Staked tGBP"));
-            symbol = vm.envOr("SY_SYMBOL", string("SY-wstGBP"));
-            expectedGem = vm.envOr("EXPECTED_GEM", TGBP);
-        } else {
-            name = vm.envOr("SY_NAME", string(""));
-            symbol = vm.envOr("SY_SYMBOL", string(""));
-            expectedGem = vm.envOr("EXPECTED_GEM", address(0));
-        }
-        sy = deploy(wsgem, name, symbol, expectedGem, vm.envOr("SY_OWNER", address(0)));
+        (address wsgem, address expectedGem, address owner) = target();
+        (string memory name, string memory symbol) = naming();
+        sy = deploy(wsgem, name, symbol, expectedGem, owner);
     }
 
     function deploy(address wsgem, string memory name, string memory symbol, address expectedGem, address owner)
@@ -95,15 +99,13 @@ contract DeployPendleWsgemSY is Script {
         }
     }
 
-    /// @notice Re-runs the full sanity battery against a live SY instance. The
-    /// expected wsgem and gem come from the environment (same vars and defaults as
-    /// run()), NOT from the SY under check — reading them from the target would
-    /// reduce the battery to self-consistency and let any healthy SY deployment
-    /// pass, including one bound to the wrong wsgem.
+    /// @notice Re-runs the full sanity battery against a live SY instance. The expected
+    /// wsgem and gem come from {target}, NOT from the SY under check — reading them from
+    /// the target would reduce the battery to self-consistency and let any healthy SY
+    /// deployment pass, including one bound to the wrong wsgem.
     function check(address syAddr) external view {
-        address wsgem = vm.envOr("WSGEM", WSTGBP);
-        address expectedGem = vm.envOr("EXPECTED_GEM", wsgem == WSTGBP ? TGBP : address(0));
-        check(syAddr, wsgem, expectedGem, vm.envOr("SY_OWNER", address(0)));
+        (address wsgem, address expectedGem, address owner) = target();
+        check(syAddr, wsgem, expectedGem, owner);
     }
 
     function check(address syAddr, address wsgem, address expectedGem, address owner) public view {
@@ -172,5 +174,19 @@ contract DeployPendleWsgemSY is Script {
             // anyone is a takeover vector the pending owner can complete unilaterally.
             require(sy.pendingOwner() == address(0), "unexpected pending owner");
         }
+    }
+
+    /// @dev For instance-pinned subclasses: refuse an env var that contradicts a pinned
+    /// value. A `WSGEM`/`SY_NAME`/... left exported for a different instance must not be
+    /// silently ignored — the operator who set it believes it is in force.
+    function _requirePinned(string memory key, address pinned) internal view {
+        require(vm.envOr(key, pinned) == pinned, string.concat(key, " contradicts this script's pinned instance"));
+    }
+
+    function _requirePinned(string memory key, string memory pinned) internal view {
+        require(
+            keccak256(bytes(vm.envOr(key, pinned))) == keccak256(bytes(pinned)),
+            string.concat(key, " contradicts this script's pinned instance")
+        );
     }
 }

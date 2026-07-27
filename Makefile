@@ -20,9 +20,16 @@ ifdef FORK_BLOCK
 export FORK_BLOCK
 endif
 
-# Deploy/check configuration read by the script via vm.envOr (see the script header).
-# Exported only when defined: a bare `export VAR` would hand the child an EMPTY string,
-# which vm.envOr treats as set-but-malformed and aborts on.
+# Which deploy script the deploy/check targets drive. Defaults to the pinned wstGBP
+# instance, which needs no configuration at all. For any other wsgem, point SCRIPT at the
+# generic pattern script and supply WSGEM + SY_NAME + SY_SYMBOL + EXPECTED_GEM:
+#   make deploy-dry SCRIPT=script/DeployPendleWsgemSY.s.sol
+SCRIPT ?= script/DeployPendleWstGbpSY.s.sol
+
+# Deploy/check configuration read by the generic script via vm.env* (see the script
+# header). The pinned wstGBP script reads only SY_OWNER and refuses the rest when they
+# contradict its pinned values. Exported only when defined: a bare `export VAR` would hand
+# the child an EMPTY string, which vm.envOr treats as set-but-malformed and aborts on.
 ifdef WSGEM
 export WSGEM
 endif
@@ -67,9 +74,10 @@ build :; forge build
 # Deterministic — the fork/smoke suites skip even when .env configures an RPC.
 test :; @$(OFFLINE) forge test -vvv
 
-# Deterministic pinned-block fork suite. Needs an archive-capable RPC (any Alchemy/Infura
-# endpoint; the public fallback often 403s archive requests). FORK_BLOCK overrides the pin.
-test-fork :; forge test -vvv --match-contract PendleWsgemSYForkTest
+# Deterministic pinned-block fork suites (SY behaviour against live wstGBP, plus the
+# pinned wstGBP deploy script). Needs an archive-capable RPC (any Alchemy/Infura endpoint;
+# the public fallback often 403s archive requests). FORK_BLOCK overrides the pin.
+test-fork :; forge test -vvv --match-contract 'ForkTest$$'
 
 # Latest-block live-parameter smoke checks: a failure means live wsgem config moved
 # (fees, cooldown, market windows, compliance), not a code regression.
@@ -95,11 +103,11 @@ gen-report :; @$(OFFLINE) forge coverage --no-match-coverage "$(COVERAGE_EXCLUDE
 serve-report :; python3 -m http.server 8000 --directory docs/coverage-report
 
 # Simulate the full deploy against live mainnet state — no broadcast, no key, nothing sent.
-# Exercises env resolution, the pre-deploy asserts, and the whole post-deploy sanity battery,
-# and writes the planned tx to broadcast/DeployPendleWsgemSY.s.sol/1/dry-run/. Defaults target
-# wstGBP; for another instance set WSGEM + SY_NAME + SY_SYMBOL + EXPECTED_GEM (the script
-# refuses to default them). Falls back to the public RPC when ETH_RPC_URL is unset.
-deploy-dry :; @$(KEYLESS) forge script script/DeployPendleWsgemSY.s.sol --rpc-url $(or $(ETH_RPC_URL),$(PUBLIC_RPC)) -vvv
+# Exercises config resolution, the pre-deploy asserts, and the whole post-deploy sanity
+# battery, and writes the planned tx to broadcast/<script>/1/dry-run/. Drives the pinned
+# wstGBP script; see SCRIPT above for any other instance. Falls back to the public RPC when
+# ETH_RPC_URL is unset.
+deploy-dry :; @$(KEYLESS) forge script $(SCRIPT) --rpc-url $(or $(ETH_RPC_URL),$(PUBLIC_RPC)) -vvv
 
 # Mainnet deploy: deploys the SY, optionally starts the two-step ownership transfer
 # (SY_OWNER — the new owner must claimOwnership() afterwards), runs the sanity battery, and
@@ -114,7 +122,7 @@ deploy :
 	@test -n "$(ETH_FROM)" || { echo "ETH_FROM (deployer address) is required"; exit 1; }
 	@test -n "$(ETH_KEYSTORE)" || { echo "ETH_KEYSTORE (keystore JSON path) is required"; exit 1; }
 	@test -n "$(ETHERSCAN_API_KEY)" || { echo "ETHERSCAN_API_KEY is required for --verify"; exit 1; }
-	forge script script/DeployPendleWsgemSY.s.sol --rpc-url $(ETH_RPC_URL) \
+	forge script $(SCRIPT) --rpc-url $(ETH_RPC_URL) \
 		--sender $(ETH_FROM) --keystore $(ETH_KEYSTORE) \
 		$(if $(ETH_PRIO_FEE),--priority-gas-price $(ETH_PRIO_FEE)) \
 		$(if $(ETH_GAS_PRICE),--with-gas-price $(ETH_GAS_PRICE)) \
@@ -130,14 +138,15 @@ verify :
 	@test -n "$(ETH_FROM)" || { echo "ETH_FROM (the deployer address) is required"; exit 1; }
 	@test -n "$(ETH_KEYSTORE)" || { echo "ETH_KEYSTORE (keystore JSON path) is required"; exit 1; }
 	@test -n "$(ETHERSCAN_API_KEY)" || { echo "ETHERSCAN_API_KEY is required"; exit 1; }
-	@forge script script/DeployPendleWsgemSY.s.sol --rpc-url $(ETH_RPC_URL) \
+	@forge script $(SCRIPT) --rpc-url $(ETH_RPC_URL) \
 		--sender $(ETH_FROM) --keystore $(ETH_KEYSTORE) \
 		--broadcast --resume --verify --etherscan-api-key $(ETHERSCAN_API_KEY)
 
 # Post-broadcast / any-time health check against a live SY (view-only, keyless): the full
 # sanity battery — bindings, previews, deficit()==0, unpaused, no unexpected pending owner.
-# Expectations come from WSGEM / EXPECTED_GEM / SY_OWNER (wstGBP defaults), never from the
-# SY under check. Usage: make check SY=0x...
+# Expectations come from the script's own target() — pinned for wstGBP, WSGEM /
+# EXPECTED_GEM / SY_OWNER for the generic script — never from the SY under check.
+# Usage: make check SY=0x...
 check :
 	@test -n "$(SY)" || { echo "SY (deployed PendleWsgemSY address) is required, e.g. make check SY=0x..."; exit 1; }
-	@$(KEYLESS) forge script script/DeployPendleWsgemSY.s.sol --sig "check(address)" $(SY) --rpc-url $(or $(ETH_RPC_URL),$(PUBLIC_RPC)) -vvv
+	@$(KEYLESS) forge script $(SCRIPT) --sig "check(address)" $(SY) --rpc-url $(or $(ETH_RPC_URL),$(PUBLIC_RPC)) -vvv
