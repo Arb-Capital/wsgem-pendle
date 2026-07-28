@@ -8,11 +8,15 @@ import {DeployPendleWsgemSY} from "./DeployPendleWsgemSY.s.sol";
 /// health-check behaviour is inherited wholesale from {DeployPendleWsgemSY}; only the
 /// configuration is fixed here.
 ///
+/// Ownership lands with the pinned OPS_OWNER multisig, in two steps: the deploy parks the
+/// transfer and the multisig must call `claimOwnership()` itself to complete it (so a bad
+/// address can never strand pause rights). Until it claims, the deployer is still owner —
+/// `make check` accepts that state and nothing else.
+///
 /// Env vars:
-///   SY_OWNER  begin two-step ownership transfer after deploy (optional, and the only
-///             configuration this script accepts; the new owner must then call
-///             claimOwnership() from its own address). Pin OPS_OWNER below instead to
-///             stop passing it by hand.
+///   SY_OWNER  override OPS_OWNER for this run (optional, and the only configuration this
+///             script accepts). To skip the transfer entirely, spell the zero address in
+///             full — 0x0000000000000000000000000000000000000000.
 ///
 /// WSGEM / EXPECTED_GEM / SY_NAME / SY_SYMBOL are pinned, not read: a value exported for
 /// another instance is refused rather than silently ignored. Use the generic
@@ -45,14 +49,15 @@ contract DeployPendleWstGbpSY is DeployPendleWsgemSY {
     string public constant SY_NAME = "SY Wren Staked tGBP";
     string public constant SY_SYMBOL = "SY-wstGBP";
 
-    /// @notice Ops multisig to hand the SY's pause/sweep powers to, or address(0) to
-    /// leave the deployer as owner and transfer later. Overridden by SY_OWNER.
-    address public constant OPS_OWNER = address(0);
+    /// @notice Ops multisig (Safe) the SY's pause/sweep powers go to. The deploy only
+    /// *starts* the transfer — this address must then call `claimOwnership()` itself, so
+    /// until it does, the deployer remains owner. Overridden by SY_OWNER.
+    address public constant OPS_OWNER = 0xa73c94969dE90Edb159D29922C42fF24beDFA085;
 
     function target() public view override returns (address wsgem, address expectedGem, address owner) {
         _requirePinned("WSGEM", WSTGBP);
         _requirePinned("EXPECTED_GEM", TGBP);
-        return (WSTGBP, TGBP, vm.envOr("SY_OWNER", OPS_OWNER));
+        return (WSTGBP, TGBP, _envOwner(OPS_OWNER));
     }
 
     function naming() public view override returns (string memory name, string memory symbol) {

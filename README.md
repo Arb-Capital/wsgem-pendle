@@ -149,7 +149,8 @@ for verification.
 There are two deploy scripts, one behaviour:
 
 - **`script/DeployPendleWstGbpSY.s.sol`** — the wstGBP deployment, with the wsgem
-  address, the gem to cross-check, and the SY name/symbol all pinned in code. Needs no
+  address, the gem to cross-check, the SY name/symbol, and the ops multisig
+  (`0xa73c94969dE90Edb159D29922C42fF24beDFA085`) all pinned in code. Needs no
   configuration; it is what the `make` targets above drive. A `WSGEM`, `EXPECTED_GEM`,
   `SY_NAME`, or `SY_SYMBOL` left exported for a different instance is **refused**, not
   silently ignored.
@@ -161,9 +162,14 @@ There are two deploy scripts, one behaviour:
   / `verify`). For a recurring instance, subclass it as the wstGBP script does —
   override `target()` and `naming()` and everything else comes along.
 
-Either way, set `SY_OWNER` to begin a **two-step** ownership transfer: the script leaves
-the transfer pending, and the new owner must call `claimOwnership()` from its own address
-to complete it (a mistyped-but-valid address therefore cannot strand pause rights).
+Ownership moves in **two steps**: the script parks the transfer and the new owner must
+call `claimOwnership()` from its own address to complete it, so a mistyped-but-valid
+address cannot strand pause rights. The wstGBP script targets its pinned ops multisig —
+**the multisig must claim before it holds anything**, and until then the deployer is still
+owner. The generic script transfers only if `SY_OWNER` is set, and `SY_OWNER` also
+overrides the pinned value for one run. To skip the transfer, spell the zero address in
+full — `SY_OWNER=0x0000000000000000000000000000000000000000`; a malformed or truncated
+value aborts the script rather than falling back to the pinned owner.
 
 The script asserts the full post-deploy state (metadata, previews, token lists,
 compliance pass, `deficit() == 0`) before reporting the address; the gem-route preview

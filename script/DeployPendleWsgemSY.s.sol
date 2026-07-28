@@ -51,7 +51,7 @@ contract DeployPendleWsgemSY is Script {
     /// the check path needs exactly these, which is why the SY metadata lives apart in
     /// {naming} — a health check must not require branding it never inspects.
     function target() public view virtual returns (address wsgem, address expectedGem, address owner) {
-        return (vm.envAddress("WSGEM"), vm.envAddress("EXPECTED_GEM"), vm.envOr("SY_OWNER", address(0)));
+        return (vm.envAddress("WSGEM"), vm.envAddress("EXPECTED_GEM"), _envOwner(address(0)));
     }
 
     /// @notice The SY's ERC20 metadata. Deploy-path only: it is burned into the
@@ -174,6 +174,17 @@ contract DeployPendleWsgemSY is Script {
             // anyone is a takeover vector the pending owner can complete unilaterally.
             require(sy.pendingOwner() == address(0), "unexpected pending owner");
         }
+    }
+
+    /// @dev SY_OWNER, or `pinned` when SY_OWNER is absent from the environment. Parsed
+    /// explicitly instead of via `vm.envOr(string,address)`, which returns the DEFAULT for
+    /// a malformed value: with that, `SY_OWNER=0x0` or a truncated address silently yields
+    /// `pinned` — the opposite of the override the operator asked for. Only genuine
+    /// absence falls back; a set-but-empty `SY_OWNER=` is a malformed value like any other
+    /// and aborts on parse. Keeping ownership with the deployer therefore means spelling
+    /// the zero address in full.
+    function _envOwner(address pinned) internal view returns (address) {
+        return vm.envExists("SY_OWNER") ? vm.parseAddress(vm.envString("SY_OWNER")) : pinned;
     }
 
     /// @dev For instance-pinned subclasses: refuse an env var that contradicts a pinned

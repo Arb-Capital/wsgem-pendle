@@ -43,6 +43,13 @@ contract DeployPendleWstGbpSYForkTest is ForkBase {
         assertEq(deployer.SY_SYMBOL(), string.concat("SY-", IERC20MetaLike(deployer.WSTGBP()).symbol()));
     }
 
+    /// @dev The pinned owner must be the live ops multisig, not a mistyped address: only a
+    /// contract that can actually execute `claimOwnership()` completes the two-step
+    /// transfer, and an EOA-shaped typo would silently leave the SY with the deployer.
+    function testFork_PinnedOwnerIsALiveContract() public onlyFork {
+        assertGt(deployer.OPS_OWNER().code.length, 0);
+    }
+
     /// @dev The run() path end to end, minus the broadcast: pinned configuration in, live
     /// deployment out, and the script's own sanity battery green on the fresh instance.
     /// Note this reads WSGEM / EXPECTED_GEM / SY_NAME / SY_SYMBOL from the environment
@@ -61,6 +68,27 @@ contract DeployPendleWstGbpSYForkTest is ForkBase {
         assertEq(sy.wsgem(), deployer.WSTGBP());
         assertEq(sy.gem(), deployer.TGBP());
 
+        deployer.check(address(sy), wsgem, expectedGem, owner);
+
+        if (owner == address(0)) {
+            // SY_OWNER overridden to the full zero address: no transfer was started and
+            // the deployer keeps the contract. Claiming must NOT be simulated here —
+            // claimOwnership() only checks `msg.sender == pendingOwner`, so a prank from
+            // address(0) against an empty pending slot would renounce ownership outright.
+            // No real caller can do that, and asserting it would green-light the very
+            // state this branch exists to rule out.
+            assertEq(sy.pendingOwner(), address(0));
+            assertTrue(sy.owner() != address(0));
+            return;
+        }
+
+        // Ownership is parked, not moved: the state make check expects until the
+        // multisig claims.
+        assertEq(sy.pendingOwner(), owner);
+        assertTrue(sy.owner() != owner);
+        vm.prank(owner);
+        sy.claimOwnership();
+        assertEq(sy.owner(), owner);
         deployer.check(address(sy), wsgem, expectedGem, owner);
     }
 }
